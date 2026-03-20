@@ -95,14 +95,9 @@ run_reviewer() {
   local prompt_content
   prompt_content=$(cat "$prompt_file")
 
-  if [[ "$name" == "opencode" ]]; then
-    if [[ -n "$context_file" && -f "$context_file" ]]; then
-      full_cmd+=("--file" "$context_file")
-    fi
-    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
-  else
-    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
-  fi
+  # Pass prompt as positional arg for all reviewers.
+  # Context is already embedded inline in the prompt — no --file needed.
+  run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
 
   local exit_code=$?
   if [[ $exit_code -eq 124 ]]; then

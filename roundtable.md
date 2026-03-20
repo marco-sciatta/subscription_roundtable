@@ -139,17 +139,17 @@ Write to `$ROUND_DIR/prompt_iter1.txt`.
 
 ---
 
-## Step 5 — Iteration loop with consensus detection
+## Step 5 — Iteration loop (Disagreement Map)
+
+The goal is NOT consensus. The goal is to **map what is agreed, what is disputed, and what is irresolvable** — and understand why. Disagreement between reviewers is valuable signal, not a problem to fix.
 
 ```
 iteration = 1
-consensus = false
-min_iterations = 3   ← default; override with --max 2 for fast-track
+done = false
 ```
 
-If all reviewers give compatible recommendations with high confidence already at iter 2,
-you may declare early consensus and skip to Step 6. Use judgment — strong early consensus
-is rare; when in doubt, run iter 3.
+Stop when: meaningful disagreements have been surfaced and explored, OR `iteration == max`.
+No minimum iterations. If iter 1 already surfaces clear positions, iter 2 may be enough.
 
 ### Each iteration:
 
@@ -168,19 +168,17 @@ The script writes `$ROUND_DIR/{reviewer}_iter{N}.md` for each configured reviewe
 [response]
 ```
 
-**Check for consensus** (only if `iteration >= min_iterations`):
+**Classify each point raised across all responses:**
+- **Agreed**: all reviewers say the same → high confidence
+- **Disputed**: reviewers diverge → note WHY, this is the valuable part
+- **Unaddressed**: important question nobody answered → flag it
 
-Read all responses and ask yourself: do these reviewers fundamentally agree on what should happen?
-Consensus does not require identical responses — it requires compatible recommendations and no unresolved critical disagreements.
+**Decide whether to continue:**
+- New meaningful disagreements emerged → run another round to probe them
+- Positions have stabilized (reviewers repeating themselves) → stop, go to Step 6
+- `iteration == max` → stop regardless
 
-Consensus is NOT reached if:
-- Reviewers recommend mutually exclusive approaches
-- One flags a critical issue the others ignore
-- Confidence levels are low and positions are still shifting
-
-If consensus → print `✅ Consensus reached at iteration N` and go to Step 6.
-
-If no consensus and `iteration < max` → build follow-up prompt:
+**If continuing**, build follow-up prompt focused on the sharpest disagreement:
 
 ```
 [context.md content — unchanged]
@@ -189,31 +187,25 @@ If no consensus and `iteration < max` → build follow-up prompt:
 # Positions from iteration [N]
 
 ## [Reviewer name]
-Position: [their recommendation in one line]
-Key points: [2–3 bullets max]
-Critical issues: [any, or "none"]
+Position: [one line]
+Key points: [2–3 bullets]
 
 ## [Reviewer name]
-Position: [their recommendation in one line]
-Key points: [2–3 bullets max]
-Critical issues: [any, or "none"]
+Position: [one line]
+Key points: [2–3 bullets]
 
 ---
-# Unresolved disagreements
-[Only list points where reviewers diverged. Skip agreements.]
+# The core disagreement to probe this iteration
+[The sharpest point of divergence — the one that matters most.
+Do NOT ask reviewers to reconcile or agree. Ask them to explain their reasoning.]
 
----
 # Instructions
-You have read the other reviewers' positions.
-- Do you agree with their recommendation?
-- Which disagreements matter most?
-- Has anything changed your view?
-Stay focused on what is still unresolved. Be direct.
+Respond only to the disagreement above. Explain WHY you hold your position.
+If the other reviewer changed your view, say so explicitly and why.
+Do not summarize your previous response.
 ```
 
 Write to `$ROUND_DIR/prompt_iter{N+1}.txt` and repeat.
-
-If `iteration == max` with no consensus → go to Step 6, note divergences explicitly.
 
 ---
 
@@ -227,27 +219,33 @@ Read all outputs from all iterations. Write `$ROUND_DIR/synthesis.md`:
 ```markdown
 # Synthesis — [topic]
 **Date:** [today]
-**Iterations:** N/MAX — [Consensus at iter N | Max reached]
-**Reviewers:** [list]
+**Iterations:** N/MAX
+**Reviewers:** [list — note any that failed]
 
-## Consensus
-> What all reviewers agree on. Highest confidence.
+## Agreed (high confidence)
+> Points all reviewers reached independently. Trust these most.
 - [point]
 
-## Unresolved divergences
-> Where reviewers did not converge. Requires explicit decision.
-[if none: "No significant divergences"]
+## Disputed — resolved
+> Disagreements that got explained and settled across iterations.
+- [point] — [who changed view and why]
 
-## Key findings / issues / proposals
-[Adapted to what this session was actually about:
-- For implementation review: critical issues, then minor
-- For design/research: main findings, options, tradeoffs
-- For coding: proposed approaches, recommended one
-Each item: what it is + who flagged it + confidence]
+## Disputed — irresolvable
+> Genuine disagreements that persist. These require a human decision.
+- [point] — [Reviewer A thinks X because... / Reviewer B thinks Y because...]
+[if none: "No irresolvable divergences"]
 
-## Final recommendation
-[Your synthesis as moderator. Concrete. Actionable.
-Not a summary of the discussion — a clear next step.]
+## Unaddressed
+> Important questions nobody answered. Worth a follow-up.
+- [question]
+
+## Key findings
+[The most important things that emerged — issues, insights, proposals.
+Each item: what + who flagged it + why it matters.]
+
+## Your decision needed
+[List only the points from "Disputed — irresolvable" that require explicit choice.
+Not a recommendation — a decision frame: "Choose A if X, choose B if Y."]
 
 ## Suggested tasks
 - [ ] [task]
