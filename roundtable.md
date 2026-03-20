@@ -144,8 +144,12 @@ Write to `$ROUND_DIR/prompt_iter1.txt`.
 ```
 iteration = 1
 consensus = false
-min_iterations = 3
+min_iterations = 3   ← default; override with --max 2 for fast-track
 ```
+
+If all reviewers give compatible recommendations with high confidence already at iter 2,
+you may declare early consensus and skip to Step 6. Use judgment — strong early consensus
+is rare; when in doubt, run iter 3.
 
 ### Each iteration:
 
@@ -213,7 +217,10 @@ If `iteration == max` with no consensus → go to Step 6, note divergences expli
 
 ---
 
-## Step 6 — Final synthesis
+## Step 6 — Final synthesis (MANDATORY — do not skip)
+
+**This step is required even if you already printed results to the user.**
+The roundtable is not complete until `synthesis.md` exists on disk.
 
 Read all outputs from all iterations. Write `$ROUND_DIR/synthesis.md`:
 
@@ -247,6 +254,8 @@ Not a summary of the discussion — a clear next step.]
 ```
 
 Print synthesis to user.
+
+**Confirm to the user:** "Round saved to `$ROUND_DIR`" — print the actual path.
 
 Append to `$ROUND_DIR/../index.md` (create if missing):
 ```
