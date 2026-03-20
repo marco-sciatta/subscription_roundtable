@@ -45,24 +45,27 @@ read_config() {
   fi
 }
 
-# ── Count existing round dirs and return zero-padded NNN ─────────────────────
+# ── Find max existing NNN and return next ─────────────────────────────────────
 next_round_number() {
   mkdir -p "$ROUNDS_DIR"
-  local count
-  count=$(find "$ROUNDS_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
-  printf "%03d" $(( count + 1 ))
+  local max=0 num
+  while IFS= read -r dir; do
+    num=$(basename "$dir" | grep -o '^[0-9]\+' || echo "0")
+    (( num > max )) && max=$num
+  done < <(find "$ROUNDS_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null)
+  printf "%03d" $(( max + 1 ))
 }
 
 check_cmd() { command -v "$1" &>/dev/null; }
 
-# ── Run a single reviewer, feed prompt via stdin ──────────────────────────────
+# ── Run a single reviewer ─────────────────────────────────────────────────────
 run_reviewer() {
   local name="$1"
   local cmd="$2"
   local args_json="$3"
-  local prompt_file="$4"   # path to file — read via stdin, avoids ARG_MAX
+  local prompt_file="$4"
   local outfile="$5"
-  local context_file="${6:-}"
+  local transport="${6:-arg}"  # "arg" (positional, ARG_MAX risk) or "stdin" (safe for large prompts)
 
   if ! check_cmd "$cmd"; then
     echo "[SKIP] $name: command '$cmd' not found" > "$outfile"
@@ -83,21 +86,20 @@ run_reviewer() {
     esac
   fi
 
-  # OpenCode: use --file for context, pass prompt as arg (opencode reads stdin poorly)
-  # Other reviewers: prompt embedded in content already, pass via process substitution
-  # ARG_MAX guard: warn if prompt exceeds safe threshold (~100KB)
-  local prompt_size
-  prompt_size=$(wc -c < "$prompt_file" | tr -d ' ')
-  if [[ $prompt_size -gt 102400 ]]; then
-    echo "[WARN] $name: prompt is ${prompt_size} bytes — may exceed ARG_MAX on some systems" >> "$outfile"
+  if [[ "$transport" == "stdin" ]]; then
+    # Stdin transport: avoids ARG_MAX on large prompts
+    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" < "$prompt_file" > "$outfile" 2>&1
+  else
+    # Positional arg transport: ARG_MAX risk on prompts > ~100KB
+    local prompt_size
+    prompt_size=$(wc -c < "$prompt_file" | tr -d ' ')
+    if [[ $prompt_size -gt 102400 ]]; then
+      echo "[WARN] $name: prompt is ${prompt_size} bytes — may exceed ARG_MAX; set \"transport\": \"stdin\" in ~/.roundtable.json" >> "$outfile"
+    fi
+    local prompt_content
+    prompt_content=$(cat "$prompt_file")
+    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
   fi
-
-  local prompt_content
-  prompt_content=$(cat "$prompt_file")
-
-  # Pass prompt as positional arg for all reviewers.
-  # Context is already embedded inline in the prompt — no --file needed.
-  run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
 
   local exit_code=$?
   if [[ $exit_code -eq 124 ]]; then
@@ -137,9 +139,6 @@ cmd_run() {
     exit 1
   fi
 
-  # context.md in the round dir — written by Claude before calling this script
-  # NOT passed to gemini (already embedded in prompt) — only to opencode via --file
-  local context_file="${round_dir}/context.md"
   local config
   config=$(read_config)
 
@@ -151,16 +150,17 @@ cmd_run() {
   local reviewer_names=()
 
   for i in $(seq 0 $((reviewer_count - 1))); do
-    local name cmd args_json
-    name=$(echo "$config"     | jq -r ".reviewers[$i].name" 2>/dev/null || echo "reviewer_$i")
-    cmd=$(echo "$config"      | jq -r ".reviewers[$i].cmd"  2>/dev/null || echo "opencode")
-    args_json=$(echo "$config" | jq -c ".reviewers[$i].args" 2>/dev/null || echo '[]')
+    local name cmd args_json transport
+    name=$(echo "$config"      | jq -r ".reviewers[$i].name"               2>/dev/null || echo "reviewer_$i")
+    cmd=$(echo "$config"       | jq -r ".reviewers[$i].cmd"                2>/dev/null || echo "opencode")
+    args_json=$(echo "$config" | jq -c ".reviewers[$i].args"               2>/dev/null || echo '[]')
+    transport=$(echo "$config" | jq -r ".reviewers[$i].transport // \"arg\"" 2>/dev/null || echo "arg")
 
     local outfile="${round_dir}/${name}_iter${iter}.md"
     outfiles+=("$outfile")
     reviewer_names+=("$name")
 
-    run_reviewer "$name" "$cmd" "$args_json" "$prompt_file" "$outfile" "$context_file" &
+    run_reviewer "$name" "$cmd" "$args_json" "$prompt_file" "$outfile" "$transport" &
     pids+=($!)
   done
 
