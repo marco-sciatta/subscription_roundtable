@@ -1,0 +1,6 @@
+{
+  "reviewers": [
+    { "name": "opencode", "cmd": "opencode", "args": ["run"] },
+    { "name": "gemini",   "cmd": "gemini",   "args": ["-p"]  }
+  ]
+}
