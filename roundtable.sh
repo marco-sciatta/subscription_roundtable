@@ -11,6 +11,20 @@ CONFIG_FILE="${HOME}/.roundtable.json"
 ROUNDS_DIR="roundtable/rounds"
 REVIEWER_TIMEOUT="${ROUNDTABLE_TIMEOUT:-120}"  # seconds, override via env
 
+# ── Portable timeout (macOS doesn't ship GNU timeout) ────────────────────────
+run_with_timeout() {
+  local secs="$1"; shift
+  if command -v timeout &>/dev/null; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout &>/dev/null; then
+    gtimeout "$secs" "$@"
+  else
+    # No timeout available — run directly, warn once
+    echo "[WARN] timeout not available (install: brew install coreutils)" >&2
+    "$@"
+  fi
+}
+
 # ── Default config ────────────────────────────────────────────────────────────
 default_config() {
   cat <<'EOF'
@@ -71,20 +85,23 @@ run_reviewer() {
 
   # OpenCode: use --file for context, pass prompt as arg (opencode reads stdin poorly)
   # Other reviewers: prompt embedded in content already, pass via process substitution
+  # ARG_MAX guard: warn if prompt exceeds safe threshold (~100KB)
+  local prompt_size
+  prompt_size=$(wc -c < "$prompt_file" | tr -d ' ')
+  if [[ $prompt_size -gt 102400 ]]; then
+    echo "[WARN] $name: prompt is ${prompt_size} bytes — may exceed ARG_MAX on some systems" >> "$outfile"
+  fi
+
+  local prompt_content
+  prompt_content=$(cat "$prompt_file")
+
   if [[ "$name" == "opencode" ]]; then
     if [[ -n "$context_file" && -f "$context_file" ]]; then
       full_cmd+=("--file" "$context_file")
     fi
-    # opencode run takes prompt as positional arg — read from file to avoid ARG_MAX
-    local prompt_content
-    prompt_content=$(cat "$prompt_file")
-    timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
+    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
   else
-    # gemini and others: pipe prompt via stdin using -p flag already set
-    # the prompt content is embedded in the file, pass as arg (gemini -p requires arg, not stdin)
-    local prompt_content
-    prompt_content=$(cat "$prompt_file")
-    timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
+    run_with_timeout "$REVIEWER_TIMEOUT" "${full_cmd[@]}" "$prompt_content" > "$outfile" 2>&1
   fi
 
   local exit_code=$?
